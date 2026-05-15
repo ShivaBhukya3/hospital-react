@@ -3,7 +3,7 @@ import { io } from 'socket.io-client';
 
 // Single shared connection for the entire app lifetime
 const socket = io(
-  import.meta.env.VITE_API_URL || 'http://localhost:4000',
+  import.meta.env.VITE_API_URL || 'http://localhost:4001',
   { transports: ['websocket', 'polling'], autoConnect: true }
 );
 

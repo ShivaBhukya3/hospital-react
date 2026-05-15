@@ -2,7 +2,8 @@
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 
-const api = axios.create({ baseURL: '/api', timeout: 10000 });
+const BASE = import.meta.env.VITE_API_URL || '';
+const api = axios.create({ baseURL: `${BASE}/api`, timeout: 10000 });
 
 // Module-level logout reference — set on first hook mount so the interceptor
 // can call it when the backend returns 401 (expired / invalid token).
