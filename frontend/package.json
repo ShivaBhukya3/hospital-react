@@ -1,0 +1,28 @@
+{
+  "name": "hospital-frontend",
+  "version": "1.0.0",
+  "description": "MedCare Hospital System – React + Vite frontend",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.100.6",
+    "axios": "^1.15.2",
+    "canvas-confetti": "^1.9.4",
+    "chart.js": "^4.5.1",
+    "framer-motion": "^12.38.0",
+    "react": "^18.3.1",
+    "react-chartjs-2": "^5.3.1",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.74.0",
+    "socket.io-client": "^4.8.3",
+    "zod": "^4.4.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.0"
+  }
+}
