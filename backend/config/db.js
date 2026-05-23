@@ -21,7 +21,8 @@ const pool = mysql.createPool({
   connectionLimit:    10,
   queueLimit:         0,
   timezone:           '+00:00',
-  dateStrings:        true,          // return DATE/DATETIME as strings, not Date objects
+  dateStrings:        true,
+  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: true } : undefined,
 });
 
 /**
