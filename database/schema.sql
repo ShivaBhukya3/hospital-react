@@ -1,123 +1,118 @@
 -- ============================================================
 --  Hospital Appointment & Analytics System
---  Database: MySQL 8.x
+--  Database: PostgreSQL (Supabase)
+--  Run this in the Supabase SQL Editor
 -- ============================================================
-
-CREATE DATABASE IF NOT EXISTS hospital_db
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE hospital_db;
 
 -- ── USERS ────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS users (
-  userId       INT AUTO_INCREMENT PRIMARY KEY,
-  username     VARCHAR(100) NOT NULL UNIQUE,
-  passwordHash VARCHAR(255) NOT NULL,
-  role         ENUM('patient','receptionist','doctor','admin','analyst') NOT NULL,
-  email        VARCHAR(150),
-  phone        VARCHAR(20),
-  createdAt    DATETIME DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB;
+  userid        SERIAL PRIMARY KEY,
+  username      VARCHAR(100) NOT NULL UNIQUE,
+  passwordhash  VARCHAR(255) NOT NULL,
+  role          VARCHAR(20)  NOT NULL CHECK (role IN ('patient','receptionist','doctor','admin','analyst')),
+  email         VARCHAR(150),
+  phone         VARCHAR(20),
+  createdat     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 -- ── DEPARTMENTS ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS departments (
-  deptId   INT AUTO_INCREMENT PRIMARY KEY,
+  deptid   SERIAL PRIMARY KEY,
   name     VARCHAR(100) NOT NULL,
   floor    VARCHAR(20),
-  headDoc  INT DEFAULT NULL
-) ENGINE=InnoDB;
+  headdoc  INT DEFAULT NULL
+);
 
 -- ── DOCTORS ──────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS doctors (
-  doctorId       INT AUTO_INCREMENT PRIMARY KEY,
-  userId         INT DEFAULT NULL,
+  doctorid       SERIAL PRIMARY KEY,
+  userid         INT DEFAULT NULL REFERENCES users(userid) ON DELETE SET NULL,
   name           VARCHAR(150) NOT NULL,
   department     VARCHAR(100),
-  deptId         INT DEFAULT NULL,
+  deptid         INT DEFAULT NULL REFERENCES departments(deptid) ON DELETE SET NULL,
   specialization VARCHAR(100),
-  availability   ENUM('Available','Busy','Off-duty') DEFAULT 'Available',
-  maxPatients    INT DEFAULT 20,
-  createdAt      DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (userId)  REFERENCES users(userId)       ON DELETE SET NULL,
-  FOREIGN KEY (deptId)  REFERENCES departments(deptId) ON DELETE SET NULL
-) ENGINE=InnoDB;
+  availability   VARCHAR(20) DEFAULT 'Available' CHECK (availability IN ('Available','Busy','Off-duty')),
+  maxpatients    INT DEFAULT 20,
+  createdat      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 ALTER TABLE departments
   ADD CONSTRAINT fk_dept_head
-  FOREIGN KEY (headDoc) REFERENCES doctors(doctorId) ON DELETE SET NULL;
+  FOREIGN KEY (headdoc) REFERENCES doctors(doctorid) ON DELETE SET NULL;
 
 -- ── PATIENTS ─────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS patients (
-  patientId  INT AUTO_INCREMENT PRIMARY KEY,
-  userId     INT DEFAULT NULL,
+  patientid  SERIAL PRIMARY KEY,
+  userid     INT DEFAULT NULL REFERENCES users(userid) ON DELETE SET NULL,
   name       VARCHAR(150) NOT NULL,
   age        INT,
-  gender     ENUM('Male','Female','Other'),
+  gender     VARCHAR(10) CHECK (gender IN ('Male','Female','Other')),
   contact    VARCHAR(20),
   address    TEXT,
-  bloodGroup VARCHAR(5),
+  bloodgroup VARCHAR(5),
   emr        TEXT,
-  createdAt  DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (userId) REFERENCES users(userId) ON DELETE SET NULL
-) ENGINE=InnoDB;
+  createdat  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 -- ── APPOINTMENTS ─────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS appointments (
-  appointmentId   INT AUTO_INCREMENT PRIMARY KEY,
-  patientId       INT NOT NULL,
-  doctorId        INT NOT NULL,
-  appointmentDate DATE NOT NULL,
-  appointmentTime TIME NOT NULL,
-  reason          TEXT,
-  status             ENUM('Pending','Scheduled','Checked-In','In-Progress','Completed','Cancelled') DEFAULT 'Scheduled',
-  bookedBy           ENUM('patient','receptionist','admin') DEFAULT 'patient',
-  forwardedToDoctor  TINYINT(1) DEFAULT 0,
-  doctorNote         VARCHAR(500) DEFAULT NULL,
-  createdAt          DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (patientId) REFERENCES patients(patientId) ON DELETE CASCADE,
-  FOREIGN KEY (doctorId)  REFERENCES doctors(doctorId)   ON DELETE CASCADE,
-  INDEX idx_date   (appointmentDate),
-  INDEX idx_doctor (doctorId),
-  INDEX idx_patient(patientId),
-  INDEX idx_status (status)
-) ENGINE=InnoDB;
+  appointmentid      SERIAL PRIMARY KEY,
+  patientid          INT NOT NULL REFERENCES patients(patientid) ON DELETE CASCADE,
+  doctorid           INT NOT NULL REFERENCES doctors(doctorid)   ON DELETE CASCADE,
+  appointmentdate    DATE NOT NULL,
+  appointmenttime    TIME NOT NULL,
+  reason             TEXT,
+  status             VARCHAR(20) DEFAULT 'Scheduled'
+                       CHECK (status IN ('Pending','Scheduled','Checked-In','In-Progress','Completed','Cancelled')),
+  bookedby           VARCHAR(20) DEFAULT 'patient'
+                       CHECK (bookedby IN ('patient','receptionist','admin')),
+  forwardedtodoctor  SMALLINT DEFAULT 0,
+  doctornote         VARCHAR(500) DEFAULT NULL,
+  createdat          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_appt_date   ON appointments(appointmentdate);
+CREATE INDEX IF NOT EXISTS idx_appt_doctor ON appointments(doctorid);
+CREATE INDEX IF NOT EXISTS idx_appt_patient ON appointments(patientid);
+CREATE INDEX IF NOT EXISTS idx_appt_status ON appointments(status);
 
 -- ── ATTENDANCE ───────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS attendance (
-  attendanceId          INT AUTO_INCREMENT PRIMARY KEY,
-  appointmentId         INT NOT NULL UNIQUE,
-  checkInTime           DATETIME DEFAULT NULL,
-  consultationStartTime DATETIME DEFAULT NULL,
-  consultationEndTime   DATETIME DEFAULT NULL,
-  notes                 TEXT,
-  FOREIGN KEY (appointmentId) REFERENCES appointments(appointmentId) ON DELETE CASCADE
-) ENGINE=InnoDB;
+  attendanceid          SERIAL PRIMARY KEY,
+  appointmentid         INT NOT NULL UNIQUE REFERENCES appointments(appointmentid) ON DELETE CASCADE,
+  checkintime           TIMESTAMP DEFAULT NULL,
+  consultationstarttime TIMESTAMP DEFAULT NULL,
+  consultationendtime   TIMESTAMP DEFAULT NULL,
+  notes                 TEXT
+);
 
--- Computed columns as views (MySQL 5.7 compat; use generated cols in 8+)
 CREATE OR REPLACE VIEW v_attendance AS
   SELECT *,
-    TIMESTAMPDIFF(MINUTE, checkInTime, consultationStartTime)   AS waitMinutes,
-    TIMESTAMPDIFF(MINUTE, consultationStartTime, consultationEndTime) AS durationMinutes
+    EXTRACT(EPOCH FROM (consultationstarttime - checkintime))          / 60 AS waitminutes,
+    EXTRACT(EPOCH FROM (consultationendtime   - consultationstarttime)) / 60 AS durationminutes
   FROM attendance;
 
 -- ── ANALYTICS SNAPSHOTS ──────────────────────────────────────
 CREATE TABLE IF NOT EXISTS analytics_snapshots (
-  snapshotId     INT AUTO_INCREMENT PRIMARY KEY,
-  snapshotDate   DATE NOT NULL UNIQUE,
-  totalAppts     INT DEFAULT 0,
-  completedAppts INT DEFAULT 0,
-  cancelledAppts INT DEFAULT 0,
-  avgWaitMin     DECIMAL(6,2),
-  avgDurationMin DECIMAL(6,2),
-  peakHour       TINYINT,
-  deptBreakdown  JSON,
-  createdAt      DATETIME DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB;
+  snapshotid     SERIAL PRIMARY KEY,
+  snapshotdate   DATE NOT NULL UNIQUE,
+  totalappts     INT DEFAULT 0,
+  completedappts INT DEFAULT 0,
+  cancelledappts INT DEFAULT 0,
+  avgwaitmin     NUMERIC(6,2),
+  avgdurationmin NUMERIC(6,2),
+  peakhour       SMALLINT,
+  deptbreakdown  JSONB,
+  createdat      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 -- ── SEED DATA ────────────────────────────────────────────────
--- Demo passwords (matching the AuthPage demo pills):
+-- Demo passwords:
 --   admin / admin123    analyst1 / analyst123    recept1 / recept123
---   dr.sharma / doc123  dr.patel / doc123        patient1 / pass123    patient2 / pass123
-INSERT INTO users (username, passwordHash, role, email, phone) VALUES
+--   dr.sharma / doc123  dr.patel / doc123
+--   patient1 / pass123  patient2 / pass123
+
+INSERT INTO users (username, passwordhash, role, email, phone) VALUES
   ('admin',     '$2b$10$RbH9YIy69knxNjfGn59n0OxTMqt9v3nZqfeShPP/DtBHg8cFls1VK', 'admin',        'admin@medcare.com',    '9000000001'),
   ('analyst1',  '$2b$10$6OY0HfFYndMEkNmRqWJ.M.AKxys.VDwqtn2iM9lmX/Xq6XcQO.5by', 'analyst',      'analyst@medcare.com',  '9000000002'),
   ('recept1',   '$2b$10$h.Q7KwbC3FGz6jGMoIbvoeDPx2bgIxRgOsMKrSRjzYXBi.3LxIDDa', 'receptionist', 'recept@medcare.com',   '9000000003'),
@@ -127,32 +122,32 @@ INSERT INTO users (username, passwordHash, role, email, phone) VALUES
   ('patient2',  '$2b$10$hbxM/ujokkqD4JrDhp3/XeWrNdm0g/eRO.byfASe9HvKtU0t1HYCa', 'patient',      'patient2@example.com', '9100000011');
 
 INSERT INTO departments (name, floor) VALUES
-  ('Cardiology',   '3rd Floor'),
-  ('Orthopedics',  '2nd Floor'),
-  ('Neurology',    '4th Floor'),
-  ('Pediatrics',   '1st Floor'),
-  ('General OPD',  'Ground Floor');
+  ('Cardiology',  '3rd Floor'),
+  ('Orthopedics', '2nd Floor'),
+  ('Neurology',   '4th Floor'),
+  ('Pediatrics',  '1st Floor'),
+  ('General OPD', 'Ground Floor');
 
-INSERT INTO doctors (userId, name, department, deptId, specialization, availability) VALUES
-  (4, 'Dr. Ravi Sharma',  'Cardiology',  1, 'Interventional Cardiology', 'Available'),
-  (5, 'Dr. Anita Patel',  'Orthopedics', 2, 'Joint Replacement',         'Available'),
-  (NULL,'Dr. Suresh Mehta','Neurology',  3, 'Stroke & Neuro-ICU',        'Busy'),
-  (NULL,'Dr. Kavita Rao',  'Pediatrics', 4, 'Neonatal Care',             'Available');
+INSERT INTO doctors (userid, name, department, deptid, specialization, availability) VALUES
+  (4,    'Dr. Ravi Sharma',  'Cardiology',  1, 'Interventional Cardiology', 'Available'),
+  (5,    'Dr. Anita Patel',  'Orthopedics', 2, 'Joint Replacement',         'Available'),
+  (NULL, 'Dr. Suresh Mehta', 'Neurology',   3, 'Stroke & Neuro-ICU',        'Busy'),
+  (NULL, 'Dr. Kavita Rao',   'Pediatrics',  4, 'Neonatal Care',             'Available');
 
-INSERT INTO patients (userId, name, age, gender, contact, bloodGroup, address) VALUES
-  (6, 'Rahul Verma',   34, 'Male',   '9100000010', 'O+', 'Banjara Hills, Hyderabad'),
-  (7, 'Priya Singh',   28, 'Female', '9100000011', 'A+', 'Jubilee Hills, Hyderabad'),
-  (NULL,'Arjun Kumar', 45, 'Male',   '9100000012', 'B+', 'Madhapur, Hyderabad'),
-  (NULL,'Sunita Rao',  52, 'Female', '9100000013', 'AB+','Kondapur, Hyderabad');
+INSERT INTO patients (userid, name, age, gender, contact, bloodgroup, address) VALUES
+  (6,    'Rahul Verma',  34, 'Male',   '9100000010', 'O+',  'Banjara Hills, Hyderabad'),
+  (7,    'Priya Singh',  28, 'Female', '9100000011', 'A+',  'Jubilee Hills, Hyderabad'),
+  (NULL, 'Arjun Kumar',  45, 'Male',   '9100000012', 'B+',  'Madhapur, Hyderabad'),
+  (NULL, 'Sunita Rao',   52, 'Female', '9100000013', 'AB+', 'Kondapur, Hyderabad');
 
-INSERT INTO appointments (patientId, doctorId, appointmentDate, appointmentTime, reason, status, bookedBy) VALUES
-  (1, 1, CURDATE(),        '10:00:00', 'Chest pain follow-up',  'Scheduled',    'patient'),
-  (2, 2, CURDATE(),        '11:30:00', 'Knee pain evaluation',  'Checked-In',   'receptionist'),
-  (3, 1, CURDATE(),        '14:00:00', 'ECG review',            'In-Progress',  'receptionist'),
-  (4, 2, DATE_SUB(CURDATE(),INTERVAL 1 DAY), '09:00:00', 'X-ray review', 'Completed', 'patient'),
-  (1, 3, DATE_SUB(CURDATE(),INTERVAL 2 DAY), '15:00:00', 'Headache evaluation','Completed','patient'),
-  (2, 1, DATE_ADD(CURDATE(),INTERVAL 2 DAY), '10:30:00', 'Cardiac stress test','Scheduled','receptionist');
+INSERT INTO appointments (patientid, doctorid, appointmentdate, appointmenttime, reason, status, bookedby) VALUES
+  (1, 1, CURRENT_DATE,                      '10:00:00', 'Chest pain follow-up',  'Scheduled',   'patient'),
+  (2, 2, CURRENT_DATE,                      '11:30:00', 'Knee pain evaluation',  'Checked-In',  'receptionist'),
+  (3, 1, CURRENT_DATE,                      '14:00:00', 'ECG review',            'In-Progress', 'receptionist'),
+  (4, 2, CURRENT_DATE - INTERVAL '1 day',   '09:00:00', 'X-ray review',          'Completed',   'patient'),
+  (1, 3, CURRENT_DATE - INTERVAL '2 days',  '15:00:00', 'Headache evaluation',   'Completed',   'patient'),
+  (2, 1, CURRENT_DATE + INTERVAL '2 days',  '10:30:00', 'Cardiac stress test',   'Scheduled',   'receptionist');
 
-INSERT INTO attendance (appointmentId, checkInTime, consultationStartTime, consultationEndTime) VALUES
-  (4, DATE_SUB(NOW(), INTERVAL 1 DAY), DATE_SUB(NOW(), INTERVAL 23 HOUR),  DATE_SUB(NOW(), INTERVAL 22 HOUR)),
-  (5, DATE_SUB(NOW(), INTERVAL 2 DAY), DATE_SUB(NOW(), INTERVAL 47 HOUR),  DATE_SUB(NOW(), INTERVAL 46 HOUR));
+INSERT INTO attendance (appointmentid, checkintime, consultationstarttime, consultationendtime) VALUES
+  (4, NOW() - INTERVAL '1 day',  NOW() - INTERVAL '23 hours', NOW() - INTERVAL '22 hours'),
+  (5, NOW() - INTERVAL '2 days', NOW() - INTERVAL '47 hours', NOW() - INTERVAL '46 hours');

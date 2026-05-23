@@ -22,8 +22,8 @@ router.get('/', async (req, res, next) => {
         p.patientId, p.name AS patientName, p.age, p.gender, p.bloodGroup,
         d.doctorId,  d.name AS doctorName,  d.department, d.specialization,
         att.checkInTime, att.consultationStartTime, att.consultationEndTime,
-        TIMESTAMPDIFF(MINUTE, att.checkInTime, att.consultationStartTime) AS waitMinutes,
-        TIMESTAMPDIFF(MINUTE, att.consultationStartTime, att.consultationEndTime) AS durationMinutes
+        ROUND(EXTRACT(EPOCH FROM (att.consultationStartTime - att.checkInTime)) / 60)::int          AS waitMinutes,
+        ROUND(EXTRACT(EPOCH FROM (att.consultationEndTime - att.consultationStartTime)) / 60)::int AS durationMinutes
       FROM appointments a
       JOIN patients p  ON a.patientId = p.patientId
       JOIN doctors  d  ON a.doctorId  = d.doctorId

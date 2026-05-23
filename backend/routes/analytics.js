@@ -14,14 +14,14 @@ router.get('/summary', async (_req, res, next) => {
   try {
     const [rows] = await db.query(`
       SELECT
-        COUNT(*)                                                     AS total,
-        SUM(a.status = 'Completed')                                  AS completed,
-        SUM(a.status = 'Cancelled')                                  AS cancelled,
-        SUM(a.appointmentDate = CURDATE())                           AS today,
-        ROUND(AVG(TIMESTAMPDIFF(MINUTE, att.checkInTime,
-                  att.consultationStartTime)), 1)                    AS avgWaitMin,
-        ROUND(AVG(TIMESTAMPDIFF(MINUTE, att.consultationStartTime,
-                  att.consultationEndTime)), 1)                      AS avgDurationMin
+        COUNT(*)                                                                      AS total,
+        COUNT(*) FILTER (WHERE a.status = 'Completed')                               AS completed,
+        COUNT(*) FILTER (WHERE a.status = 'Cancelled')                               AS cancelled,
+        COUNT(*) FILTER (WHERE a.appointmentDate = CURRENT_DATE)                     AS today,
+        ROUND(AVG(EXTRACT(EPOCH FROM (att.consultationStartTime - att.checkInTime))
+              / 60)::numeric, 1)                                                     AS avgWaitMin,
+        ROUND(AVG(EXTRACT(EPOCH FROM (att.consultationEndTime - att.consultationStartTime))
+              / 60)::numeric, 1)                                                     AS avgDurationMin
       FROM appointments a
       LEFT JOIN attendance att ON att.appointmentId = a.appointmentId
     `);
@@ -35,12 +35,12 @@ router.get('/daily', async (req, res, next) => {
     const days = parseInt(req.query.days) || 30;
     const [rows] = await db.query(`
       SELECT
-        appointmentDate                     AS date,
-        COUNT(*)                            AS total,
-        SUM(status = 'Completed')           AS completed,
-        SUM(status = 'Cancelled')           AS cancelled
+        appointmentDate                                       AS date,
+        COUNT(*)                                             AS total,
+        COUNT(*) FILTER (WHERE status = 'Completed')        AS completed,
+        COUNT(*) FILTER (WHERE status = 'Cancelled')        AS cancelled
       FROM appointments
-      WHERE appointmentDate >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+      WHERE appointmentDate >= CURRENT_DATE - (? * INTERVAL '1 day')
       GROUP BY appointmentDate
       ORDER BY appointmentDate ASC
     `, [days]);
@@ -53,11 +53,11 @@ router.get('/peak-hours', async (_req, res, next) => {
   try {
     const [rows] = await db.query(`
       SELECT
-        HOUR(appointmentTime) AS hour,
-        COUNT(*)              AS count
+        EXTRACT(HOUR FROM appointmentTime)::int AS hour,
+        COUNT(*)                                AS count
       FROM appointments
       WHERE status != 'Cancelled'
-      GROUP BY HOUR(appointmentTime)
+      GROUP BY EXTRACT(HOUR FROM appointmentTime)
       ORDER BY hour ASC
     `);
     res.json(rows);
@@ -70,9 +70,9 @@ router.get('/dept-load', async (_req, res, next) => {
     const [rows] = await db.query(`
       SELECT
         d.department,
-        COUNT(*)                                                           AS total,
-        ROUND(AVG(TIMESTAMPDIFF(MINUTE, att.checkInTime,
-                  att.consultationStartTime)), 1)                          AS avgWait
+        COUNT(*)                                                                         AS total,
+        ROUND(AVG(EXTRACT(EPOCH FROM (att.consultationStartTime - att.checkInTime))
+              / 60)::numeric, 1)                                                         AS avgWait
       FROM appointments a
       JOIN doctors d ON a.doctorId = d.doctorId
       LEFT JOIN attendance att ON att.appointmentId = a.appointmentId
@@ -92,10 +92,10 @@ router.get('/doctor-load', async (_req, res, next) => {
         d.name          AS doctor,
         d.department,
         d.availability,
-        COUNT(*)                                                               AS total,
-        SUM(a.appointmentDate = CURDATE())                                    AS today,
-        ROUND(AVG(TIMESTAMPDIFF(MINUTE, att.checkInTime,
-                  att.consultationStartTime)), 1)                              AS avgWait
+        COUNT(*)                                                                           AS total,
+        COUNT(*) FILTER (WHERE a.appointmentDate = CURRENT_DATE)                          AS today,
+        ROUND(AVG(EXTRACT(EPOCH FROM (att.consultationStartTime - att.checkInTime))
+              / 60)::numeric, 1)                                                           AS avgWait
       FROM appointments a
       JOIN doctors d ON a.doctorId = d.doctorId
       LEFT JOIN attendance att ON att.appointmentId = a.appointmentId
@@ -113,14 +113,14 @@ router.get('/wait-times', async (req, res, next) => {
     const days = parseInt(req.query.days) || 7;
     const [rows] = await db.query(`
       SELECT
-        a.appointmentDate                                                      AS date,
-        ROUND(AVG(TIMESTAMPDIFF(MINUTE, att.checkInTime,
-                  att.consultationStartTime)), 1)                              AS avgWait,
-        MAX(TIMESTAMPDIFF(MINUTE, att.checkInTime,
-                  att.consultationStartTime))                                  AS maxWait
+        a.appointmentDate                                                                   AS date,
+        ROUND(AVG(EXTRACT(EPOCH FROM (att.consultationStartTime - att.checkInTime))
+              / 60)::numeric, 1)                                                            AS avgWait,
+        ROUND(MAX(EXTRACT(EPOCH FROM (att.consultationStartTime - att.checkInTime))
+              / 60)::numeric, 0)                                                            AS maxWait
       FROM appointments a
       JOIN attendance att ON att.appointmentId = a.appointmentId
-      WHERE a.appointmentDate >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+      WHERE a.appointmentDate >= CURRENT_DATE - (? * INTERVAL '1 day')
         AND att.checkInTime IS NOT NULL
         AND att.consultationStartTime IS NOT NULL
       GROUP BY a.appointmentDate
@@ -139,11 +139,10 @@ router.get('/forecast', async (_req, res, next) => {
         COUNT(*)        AS count
       FROM appointments
       WHERE status != 'Cancelled'
-        AND appointmentDate >= DATE_SUB(CURDATE(), INTERVAL 60 DAY)
+        AND appointmentDate >= CURRENT_DATE - (60 * INTERVAL '1 day')
       GROUP BY appointmentDate
       ORDER BY appointmentDate ASC
     `);
-    // Compute 7-day moving average in JS (cleaner than MySQL window functions for compat)
     const result = rows.map((row, i) => {
       const window = rows.slice(Math.max(0, i - 6), i + 1);
       const avg    = window.reduce((s, r) => s + Number(r.count), 0) / window.length;
@@ -163,8 +162,10 @@ router.get('/export', async (_req, res, next) => {
         p.name AS patient, p.age, p.gender, p.bloodGroup,
         d.name AS doctor, d.department, d.specialization,
         att.checkInTime, att.consultationStartTime, att.consultationEndTime,
-        TIMESTAMPDIFF(MINUTE, att.checkInTime, att.consultationStartTime) AS waitMinutes,
-        TIMESTAMPDIFF(MINUTE, att.consultationStartTime, att.consultationEndTime) AS durationMinutes
+        ROUND(EXTRACT(EPOCH FROM (att.consultationStartTime - att.checkInTime))
+              / 60)::int            AS waitMinutes,
+        ROUND(EXTRACT(EPOCH FROM (att.consultationEndTime - att.consultationStartTime))
+              / 60)::int            AS durationMinutes
       FROM appointments a
       JOIN patients p  ON a.patientId = p.patientId
       JOIN doctors  d  ON a.doctorId  = d.doctorId

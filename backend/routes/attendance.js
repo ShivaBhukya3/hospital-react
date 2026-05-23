@@ -14,7 +14,7 @@ router.post('/checkin', authorize('receptionist', 'admin'), async (req, res, nex
     await db.query(
       `INSERT INTO attendance (appointmentId, checkInTime)
        VALUES (?, NOW())
-       ON DUPLICATE KEY UPDATE checkInTime = NOW()`,
+       ON CONFLICT (appointmentId) DO UPDATE SET checkInTime = NOW()`,
       [appointmentId]
     );
     await db.query(
@@ -69,8 +69,9 @@ router.post('/end', authorize('doctor', 'admin'), async (req, res, next) => {
 router.get('/:appointmentId', async (req, res, next) => {
   try {
     const [rows] = await db.query(
-      `SELECT *, TIMESTAMPDIFF(MINUTE, checkInTime, consultationStartTime) AS waitMinutes,
-                 TIMESTAMPDIFF(MINUTE, consultationStartTime, consultationEndTime) AS durationMinutes
+      `SELECT *,
+         ROUND(EXTRACT(EPOCH FROM (consultationStartTime - checkInTime)) / 60)::int          AS waitMinutes,
+         ROUND(EXTRACT(EPOCH FROM (consultationEndTime - consultationStartTime)) / 60)::int  AS durationMinutes
        FROM attendance WHERE appointmentId = ?`,
       [req.params.appointmentId]
     );
