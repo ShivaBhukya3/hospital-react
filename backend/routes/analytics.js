@@ -40,7 +40,7 @@ router.get('/daily', async (req, res, next) => {
         COUNT(*) FILTER (WHERE status = 'Completed')        AS completed,
         COUNT(*) FILTER (WHERE status = 'Cancelled')        AS cancelled
       FROM appointments
-      WHERE appointmentDate >= CURRENT_DATE - (? * INTERVAL '1 day')
+      WHERE appointmentDate >= CURRENT_DATE - (?::int * INTERVAL '1 day')
       GROUP BY appointmentDate
       ORDER BY appointmentDate ASC
     `, [days]);
@@ -120,7 +120,7 @@ router.get('/wait-times', async (req, res, next) => {
               / 60)::numeric, 0)                                                            AS maxWait
       FROM appointments a
       JOIN attendance att ON att.appointmentId = a.appointmentId
-      WHERE a.appointmentDate >= CURRENT_DATE - (? * INTERVAL '1 day')
+      WHERE a.appointmentDate >= CURRENT_DATE - (?::int * INTERVAL '1 day')
         AND att.checkInTime IS NOT NULL
         AND att.consultationStartTime IS NOT NULL
       GROUP BY a.appointmentDate
